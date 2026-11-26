@@ -1,0 +1,36 @@
+; SPDX-License-Identifier: MIT
+; Copyright (c) 2026 Shota Azuma
+; REVERB bring-up: PCM1808 (ADC) + PCM5102A (DAC) on one shared I2S bus.
+;
+;   scki        : GP10 square wave, 12 PIO cycles per period (clkdiv 1 -> 150 MHz / 12 = 12.5 MHz = 256 fs)
+;   i2s_duplex  : side-set bit 0 = LRCK (GP13), bit 1 = BCK (GP14), OUT = DIN (GP12), IN = DOUT (GP11)
+;                 4 PIO cycles per BCK (2 low, 2 high), clkdiv 12 -> BCK 3.125 MHz = 64 fs, fs = 48828.125 Hz
+;                 DATA out changes on the BCK falling edge; DOUT is sampled on the BCK rising edge.
+;                 LRCK switches together with the previous word's LSB (standard I2S, 1-bit delay).
+;                 Autopull / autopush 32 bits, MSB first. FIFO order: L word, then R word (both directions).
+; Regenerate: pioasm rvb_io.pio rvb_io.pio.h
+
+.program scki
+.wrap_target
+    set pins, 1 [5]
+    set pins, 0 [5]
+.wrap
+
+.program i2s_duplex
+.side_set 2
+
+bitloop_l:
+    out pins, 1         side 0b00 [1]
+    in  pins, 1         side 0b10
+    jmp x-- bitloop_l   side 0b10
+    out pins, 1         side 0b01 [1]   ; left LSB, LRCK -> right
+    in  pins, 1         side 0b11
+    set x, 30           side 0b11
+bitloop_r:
+    out pins, 1         side 0b01 [1]
+    in  pins, 1         side 0b11
+    jmp x-- bitloop_r   side 0b11
+    out pins, 1         side 0b00 [1]   ; right LSB, LRCK -> left
+    in  pins, 1         side 0b10
+public entry_point:
+    set x, 30           side 0b10
